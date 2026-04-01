@@ -1,8 +1,8 @@
 import express from 'express'
-import authRoutes from './routes/authRoutes.js'
-import postsRoutes from './routes/postsRoutes.js'
-import connectDB from './config/db.js'
-import verifyJWT from './middlewares/verifyJWT.js'
+import authRoutes from './routes/authRoutes.ts'
+import postsRoutes from './routes/postsRoutes.ts'
+import connectDB from './config/db.ts'
+import verifyJWT from './middlewares/verifyJWT.ts'
 
 const PORT = process.env.PORT
 

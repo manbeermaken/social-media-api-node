@@ -9,20 +9,24 @@ const getPostFromId = async (req, res, next) => {
             return res.status(404).json({ message: "cannot find post" })
         }
     } catch (e) {
+        if (e.name === 'CastError') { return res.status(400).json({ message: "Invalid post ID format" }) }
         return res.status(500).json({ message: e.message })
     }
-    res.post = post
+    req.post = post
     next()
 }
 
 const getAllPosts = async (req, res) => {
-    const posts = await Post.find()
-    const user = await User.find({ _id: req.userId })
-    res.json(posts)
+    try {
+        const posts = await Post.find();
+        res.json(posts);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
 }
 
 const getPost = [getPostFromId, (req, res) => {
-    res.json(res.post)
+    res.json(req.post)
 }]
 
 const getUserPosts = async (req, res) => {
@@ -40,35 +44,34 @@ const getUserPosts = async (req, res) => {
 }
 
 const createPost = async (req, res) => {
-    let user
     try {
-        user = await User.findOne({ _id: req.userId })
-    } catch (err) {
-        res.status(400).json({ message: err.message })
-    }
-    const post = new Post({
-        title: req.body.title,
-        content: req.body.content,
-        authorId: user._id,
-        authorName: user.username
-    })
-    try {
+        const user = await User.findOne({ _id: req.userId })
+        if (!user) { return res.status(404).json({ message: "User not found" }) }
+
+        const post = new Post({
+            title: req.body.title,
+            content: req.body.content,
+            authorId: user._id,
+            authorName: user.username
+        })
+        
         const newPost = await post.save()
         res.status(201).json(newPost)
     } catch (err) {
-        res.status(400).json({ message: err.message })
+        return res.status(400).json({ message: err.message })
     }
 }
 
 const updatePost = [getPostFromId, async (req, res) => {
+    if (req.post.authorId.toString() !== req.userId.toString()) { return res.status(403).json({ message: "not allowed" }) }
     if (req.body.title != null) {
-        res.post.title = req.body.title
+        req.post.title = req.body.title
     }
     if (req.body.content != null) {
-        res.post.content = req.body.content
+        req.post.content = req.body.content
     }
     try {
-        const updatedPost = await res.post.save()
+        const updatedPost = await req.post.save()
         res.json(updatedPost)
     } catch (e) {
         res.status(400).json({ message: e.message })
@@ -76,8 +79,9 @@ const updatePost = [getPostFromId, async (req, res) => {
 }]
 
 const deletePost = [getPostFromId, async (req, res) => {
+    if (req.post.authorId.toString() !== req.userId.toString()) { return res.status(403).json({ message: "not allowed" }) }
     try {
-        await res.post.deleteOne()
+        await req.post.deleteOne()
         res.json({ message: "deleted post" })
     } catch (e) {
         res.status(500).json({ message: e.message })

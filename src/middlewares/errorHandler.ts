@@ -3,10 +3,9 @@ import type { ErrorRequestHandler } from "express";
 
 const errorHandler: ErrorRequestHandler = (error, req, res, next) => {
   if (error instanceof HttpError) {
-    const statusCode = error.statusCode || 500;
+    const statusCode = error.statusCode;
 
     return res.status(statusCode).json({
-      success: false,
       message: error.message,
       details: error.details,
     });
@@ -15,7 +14,7 @@ const errorHandler: ErrorRequestHandler = (error, req, res, next) => {
   console.error("Unhandled Error:", error);
   return res
     .status(500)
-    .json({ success: false, message: "Something went wrong" });
+    .json({ message: "Something went wrong" });
 };
 
 export default errorHandler;

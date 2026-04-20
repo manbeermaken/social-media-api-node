@@ -1,10 +1,7 @@
-import mongoose, { Schema, Document, Types } from "mongoose";
+import mongoose, { Schema, Document } from "mongoose";
+import { type PostType } from "../schemas/post.schema.js";
 
-export interface IPost extends Document {
-  title: string;
-  content: string;
-  authorId: string; 
-  authorName: string;
+export interface IPost extends PostType, Document {
   createdAt: Date;
   updatedAt: Date;
 }
@@ -33,10 +30,9 @@ const postSchema = new Schema<IPost>(
   },
   {
     timestamps: true,
-  }
+  },
 );
 
-postSchema.index({ createdAt: -1 });
 const Post = mongoose.model<IPost>("Post", postSchema);
 
 export default Post;

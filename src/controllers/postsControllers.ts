@@ -1,219 +1,212 @@
 import Post from "../models/Post.js";
 import type { IPost } from "../models/Post.js";
-import type { Request, Response, NextFunction } from 'express';
-import {prisma} from '../config/prisma.js'
+import type { RequestHandler } from "express";
+import db from "../config/drizzle.js";
+import { users } from "../db/schema.js";
+import * as z from "zod";
+import HttpError from "../utils/httpError.js";
+import mongoose from "mongoose";
+import { createPostSchema } from "../schemas/post.schema.js";
+import { eq } from "drizzle-orm";
+import { userInsertSchema } from "../db/schema.js";
 
-interface CustomRequest extends Request{
-    post?: IPost;
-    userId?: string;
-    username?: string;
-}
+export const objectIdSchema = z.string().refine(
+  (val) => mongoose.isValidObjectId(val),
+  { message: "Invalid cursor format" }
+);
 
-const getPostFromId = async (req: CustomRequest, res: Response, next: NextFunction) => {
-    let post
-    try {
-        post = await Post.findById(req.params.id)
-        if (post === null) {
-            return res.status(404).json({ message: "Cannot find post" })
-        }
-    } catch (err) {
-        if(err instanceof Error){
-            if (err.name === 'CastError') { return res.status(400).json({ message: "Invalid post ID format" }) }
-            return res.status(500).json({ message: err.message })
-        } else {
-            return res.status(500).json({ message: "An unexpected error occurred" })
-        }
-    }
-    req.post = post
-    next()
-}
+export const paginationSchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(10),
+  cursor: objectIdSchema.optional(),
+});
 
-export async function getPosts(req: Request, res: Response){
-    try {
-        const limit = parseInt(req.query.limit as string) || 10
-        const cursor = req.query.cursor as string
-        let query: any = {}
-        if(cursor){
-            query.createdAt = { $lt : new Date(cursor) }
-        }
-        
-        const posts = await Post.find(query)
-            .sort({ createdAt: -1 })
-            .limit(limit+1)
-            .lean()
+export const getPostFromId: RequestHandler = async (req, res, next) => {
+  const postId = req.params.id;
 
-        const hasNextPage = posts.length > limit 
-        const results = hasNextPage ? posts.slice(0, -1) : posts;
+  if (!mongoose.isValidObjectId(postId)) {
+    throw new HttpError(422, "Invalid post id");
+  }
 
-        const nextCursor = hasNextPage 
-        ? results[results.length - 1].createdAt 
-        : null;
+  const post = await Post.findById(postId);
+  if (post === null) {
+    throw new HttpError(404, "Post not found");
+  }
 
-        res.status(200).json({
-            posts: results,
-            nextCursor,
-        });
-    } catch (err) {
-        console.log("Error getting posts: ",err)
-        if (err instanceof Error) {
-            return res.status(500).json({ message: err.message })
-        } else {
-            return res.status(500).json({ message: "An unexpected error occurred" })
-        }
-    }
-}
+  req.post = post;
+  next();
+};
 
-export function getPost(req: CustomRequest, res: Response) {
-    if (!req.post || !req.userId) {
-        return res.status(401).json({ message: "Unauthorized or Post not found" });
-    }
-    res.json(req.post)
-}
+export const getPosts: RequestHandler = async (req, res) => {
+  const queryValidation = paginationSchema.safeParse(req.query);
+  if (!queryValidation.success) {
+    const errors = z.flattenError(queryValidation.error).fieldErrors;
+    throw new HttpError(422, "Validation Failed", errors);
+  }
 
-const getUserPosts = async (req: Request, res: Response) => {
-    try {
-        const { username } = req.params
-        const user = await prisma.user.findUnique({
-            where:{ username:String(username) },
-            select:{ id:true }
-        })
+  const { limit, cursor } = queryValidation.data;
 
-        if (!user) { return res.status(404).json({ message: 'User not found' }) }
+  let query: mongoose.QueryFilter<IPost> = {};
+  if (cursor) {
+    query._id = { $lt: cursor };
+  }
 
-        const limit = parseInt(req.query.limit as string) || 10
-        const cursor = req.query.cursor as string
-        let query: any = {
-            authorId : user.id
-        }
+  const posts = await Post.find(query)
+    .sort({ _id: -1 })
+    .limit(limit + 1)
+    .lean();
 
-        if(cursor){
-            query.createdAt = { $lt : new Date(cursor) }
-        }
+  const hasNextPage = posts.length > limit;
+  const results = hasNextPage ? posts.slice(0, -1) : posts;
 
-        const posts = await Post.find(query)
-                                .sort({ createdAt: -1 })
-                                .limit(limit+1)
-                                .lean()
+  const nextCursor = hasNextPage ? results[results.length - 1]._id : null;
 
-        const hasNextPage = posts.length > limit 
-        const results = hasNextPage ? posts.slice(0, -1) : posts;
+  res.status(200).json({
+    posts: results,
+    nextCursor,
+  });
+};
 
-        const nextCursor = hasNextPage 
-        ? results[results.length - 1].createdAt 
-        : null;
+export const getPost: RequestHandler = async (req, res) => {
+  res.status(200).json(req.post);
+};
 
-        res.status(200).json({
-            posts: results,
-            nextCursor,
-        });
+export const getUserPosts: RequestHandler = async (req, res) => {
+  const usernameValidation = userInsertSchema
+    .pick({ username: true })
+    .safeParse(req.params);
+  if (!usernameValidation.success) {
+    const errors = z.flattenError(usernameValidation.error).fieldErrors;
+    throw new HttpError(422, "Validation Failed", errors);
+  }
+  const username = usernameValidation.data.username;
 
-    } catch (err) {
-        console.error("Error in getUserPosts:", err)
-        if (err instanceof Error) {
-            res.status(500).json({ message: err.message })
-        } else {
-            res.status(500).json({ message: "An unexpected error occurred" })
-        }
-    }
-}
+  const user = await db.query.users.findFirst({
+    where: eq(users.username, username),
+  });
+  if (!user) {
+    throw new HttpError(404, "User not found");
+  }
 
-const createPost = async (req: CustomRequest, res: Response) => {
-    try {
-        const id = req.userId
-        const user = await prisma.user.findUnique({
-            where:{ id },
-            select:{ id:true, username:true}
-        })
-        if (!user) { return res.status(404).json({ message: "User not found" }) }
+  const queryValidation = paginationSchema.safeParse(req.query);
+  if (!queryValidation.success) {
+    const errors = z.flattenError(queryValidation.error).fieldErrors;
+    throw new HttpError(422, "Validation Failed", errors);
+  }
+  const { limit, cursor } = queryValidation.data;
 
-        const title = req.body.title
-        const content = req.body.content
+  let query: mongoose.QueryFilter<IPost> = {
+    authorId: user.id,
+  };
+  if (cursor) {
+    query._id = { $lt: cursor };
+  }
 
-        // moderation
-        const modRes = await fetch(`${process.env.FASTAPI_URL}/moderate`,{
-            method: "POST",
-            headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({title,content})
-        })
+  const posts = await Post.find(query)
+    .sort({ _id: -1 })
+    .limit(limit + 1)
+    .lean();
 
-        const data = await modRes.json()
-        if(data.is_flagged){
-            throw new Error('Moderation Failed')
-        }
+  const hasNextPage = posts.length > limit;
+  const results = hasNextPage ? posts.slice(0, -1) : posts;
 
-        const post = new Post({
-            title: title,
-            content: content,
-            authorId: user.id,
-            authorName: user.username
-        })
-        
-        const newPost = await post.save()
-        res.status(201).json(newPost)
-    } catch (err) {
-        console.log("Error in creating posts: ",err)
-        if(err instanceof Error){
-        return res.status(400).json({ message: err.message })
-        } else {
-            res.status(500).json({ message: "An unexpected error occurred" })
-        }
-    }
-}
+  const nextCursor = hasNextPage ? results[results.length - 1]._id : null;
 
-export async function updatePost(req: CustomRequest, res: Response) {
-    if (!req.post || !req.userId) {
-        return res.status(401).json({ message: "Unauthorized or Post not found" });
-    }
-    if (req.post.authorId.toString() !== req.userId.toString()) { return res.status(403).json({ message: "not allowed" }) }
-    if (req.body.title != null) {
-        req.post.title = req.body.title
-    }
-    if (req.body.content != null) {
-        req.post.content = req.body.content
-    }
-    try {
-        const title = req.body.title
-        const content = req.body.content
-        // moderation
-        const modRes = await fetch(`${process.env.FASTAPI_URL}/moderate`,{
-            method: "POST",
-            headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({title,content})
-        })
+  res.status(200).json({
+    posts: results,
+    nextCursor,
+  });
+};
 
-        const data = await modRes.json()
-        if(data.is_flagged){
-            throw new Error('Moderation Failed')
-        }
+export const createPost: RequestHandler = async (req, res) => {
+  const postValidation = createPostSchema
+    .pick({ title: true, content: true })
+    .safeParse(req.body);
+  if (!postValidation.success) {
+    const errors = z.flattenError(postValidation.error).fieldErrors;
+    throw new HttpError(422, "Validation failed", errors);
+  }
+  const { title, content } = postValidation.data;
 
-        const updatedPost = await req.post.save()
-        res.json(updatedPost)
-    } catch (err) {
-        console.log("Error updating post: ",err)
-        if(err instanceof Error){
-        res.status(400).json({ message: err.message })
-        } else {
-            res.status(500).json({message: "An unexpected error occurred"})
-        }
-    }
-}
+  const userId = req.userId;
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, userId!))
+    .limit(1);
+  if (!user) {
+    throw new HttpError(404, "User not found");
+  }
 
-export async function deletePost(req: CustomRequest, res: Response) {
-    if (!req.post || !req.userId) {
-        return res.status(401).json({ message: "Unauthorized or Post not found" });
-    }
-    if (req.post.authorId.toString() !== req.userId.toString()) { return res.status(403).json({ message: "not allowed" }) }
-    try {
-        await req.post.deleteOne()
-        res.json({ message: "deleted post" })
-    } catch (err) {
-        console.log("Error deleting post: ",err)
-        if(err instanceof Error){
-        res.status(400).json({ message: err.message })
-        } else {
-            res.status(500).json({message: "An unexpected error occurred"})
-        }
-    }
-}
+  const modRes = await fetch(`${process.env.FASTAPI_URL}/moderate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, content }),
+  });
+  if (!modRes.ok) {
+    throw new HttpError(502, "Moderation service unavailable");
+  }
+  const data = await modRes.json();
+  if (data.is_flagged) {
+    throw new HttpError(422, "Moderation Failed");
+  }
 
-export { createPost, getUserPosts, getPostFromId }
+  const post = new Post({
+    title: title,
+    content: content,
+    authorId: user.id,
+    authorName: user.username,
+  });
+
+  const newPost = await post.save();
+  res.status(201).json(newPost);
+};
+
+export const updatePost: RequestHandler = async (req, res) => {
+  const postValidation = createPostSchema
+    .pick({ content: true })
+    .safeParse(req.body);
+  if (!postValidation.success) {
+    const errors = z.flattenError(postValidation.error).fieldErrors;
+    throw new HttpError(422, "Validation failed", errors);
+  }
+  const { content } = postValidation.data;
+
+  if (!req.post) {
+    throw new HttpError(401, "Post not found");
+  }
+  const title = req.post.title;
+
+  if (req.post.authorId.toString() !== req.userId!.toString()) {
+    throw new HttpError(403, "Not allowed");
+  }
+
+  const modRes = await fetch(`${process.env.FASTAPI_URL}/moderate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, content }),
+  });
+  if (!modRes.ok) {
+    throw new HttpError(502, "Moderation service unavailable");
+  }
+  const data = await modRes.json();
+  if (data.is_flagged) {
+    throw new HttpError(422, "Moderation Failed");
+  }
+
+  req.post.content = content;
+  const updatedPost = await req.post.save();
+  res.json(updatedPost);
+};
+
+export const deletePost: RequestHandler = async (req, res) => {
+  if (!req.post) {
+    throw new HttpError(404, "Post not found");
+  }
+
+  if (req.post.authorId.toString() !== req.userId!.toString()) {
+    throw new HttpError(403, "Not allowed");
+  }
+
+  await req.post.deleteOne();
+  res.status(204).send();
+};

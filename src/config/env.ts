@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["dev", "prod"]).default("dev"),
+  LOG_LEVEL: z.enum(["INFO","WARN","ERROR"]).default("INFO"),
   PORT: z.coerce.number().default(8000),
   MONGODB_DATABASE_URL: z.url().default("mongodb://127.0.0.1:27017/social"),
   POSTGRES_DATABASE_URL: z.url(),

@@ -109,7 +109,7 @@ export const signup: RequestHandler = async (req, res) => {
     res.status(201).json({ success: true, accessToken, refreshToken });
   } catch (err: any) {
     if (err.cause.code === "23505") {
-      throw new HttpError(400, "Username already exists");
+      throw new HttpError(409, "Username already exists");
     }
     throw err;
   }

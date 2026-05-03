@@ -8,7 +8,7 @@ import HttpError from "../utils/httpError.js";
 import mongoose from "mongoose";
 import { createPostSchema } from "../schemas/post.schema.js";
 import { eq } from "drizzle-orm";
-import { userInsertSchema } from "../db/schema.js";
+import env from "../config/env.js";
 
 export const objectIdSchema = z
   .string()
@@ -91,7 +91,7 @@ export const createPost: RequestHandler = async (req, res) => {
     throw new HttpError(404, "User not found");
   }
 
-  const modRes = await fetch(`${process.env.FASTAPI_URL}/moderate`, {
+  const modRes = await fetch(`${env.FASTAPI_URL}/moderate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title, content }),
@@ -134,7 +134,7 @@ export const updatePost: RequestHandler = async (req, res) => {
     throw new HttpError(403, "Not allowed");
   }
 
-  const modRes = await fetch(`${process.env.FASTAPI_URL}/moderate`, {
+  const modRes = await fetch(`${env.FASTAPI_URL}/moderate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title, content }),

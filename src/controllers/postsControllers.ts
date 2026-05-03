@@ -10,10 +10,11 @@ import { createPostSchema } from "../schemas/post.schema.js";
 import { eq } from "drizzle-orm";
 import { userInsertSchema } from "../db/schema.js";
 
-export const objectIdSchema = z.string().refine(
-  (val) => mongoose.isValidObjectId(val),
-  { message: "Invalid cursor format" }
-);
+export const objectIdSchema = z
+  .string()
+  .refine((val) => mongoose.isValidObjectId(val), {
+    message: "Invalid cursor format",
+  });
 
 export const paginationSchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(10),

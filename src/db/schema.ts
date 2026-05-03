@@ -1,33 +1,36 @@
 import {
   uuid,
   pgTable,
-  text,
   timestamp,
   pgEnum,
-  index,
   varchar,
+  unique,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 
-export const roleEnum = pgEnum("Role", ["USER", "ADMIN"]);
+export const roleEnum = pgEnum("role", ["USER", "ADMIN"]);
 
-export const users = pgTable("users", {
-  id: uuid().primaryKey().defaultRandom(),
+export const users = pgTable(
+  "users",
+  {
+    id: uuid().primaryKey().defaultRandom(),
 
-  username: varchar({ length: 255 }).notNull().unique(),
+    username: varchar({ length: 255 }).notNull(),
 
-  password: varchar({ length: 255 }).notNull(),
+    password: varchar({ length: 255 }).notNull(),
 
-  role: roleEnum().default("USER").notNull(),
+    role: roleEnum().default("USER").notNull(),
 
-  createdAt: timestamp({ precision: 6, withTimezone: true })
-    .defaultNow()
-    .notNull(),
+    createdAt: timestamp({ precision: 6, withTimezone: true })
+      .defaultNow()
+      .notNull(),
 
-  updatedAt: timestamp({ precision: 6, withTimezone: true })
-    .notNull()
-    .$onUpdate(() => new Date()),
-});
+    updatedAt: timestamp({ precision: 6, withTimezone: true })
+      .notNull()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [unique("users_username_unique").on(table.username)],
+);
 
 export const userInsertSchema = createInsertSchema(users, {
   username: (schema) =>
